@@ -38,24 +38,16 @@ def generar_urls_coes(fecha):
     ]
 
 def clean_match_name(text):
-    """Limpia el texto para hacer un match robusto descartando unidades, parámetros y tildes."""
     if pd.isna(text) or str(text).strip().lower() == 'nan': return ""
     t = str(text).upper()
-    
-    # Eliminar cualquier texto entre paréntesis ej: (W/M2), (M/S)
     t = re.sub(r'\(.*?\)', '', t)
-    
-    # Normalización para ignorar tildes (RUBÍ = RUBI)
     t = unicodedata.normalize('NFKD', t).encode('ASCII', 'ignore').decode('utf-8')
     t = re.sub(r'[^A-Z0-9]', '', t)
-    
-    # Ampliamos el filtrado para remover indicadores de medición
     palabras_a_remover = [
         'CE', 'CS', 'PARQUEEOLICO', 'CENTRALSOLAR', 'CENTRALEOLICA', 'CENTRAL', 
         'PARQUE', 'EOLICA', 'SOLAR', 'EXP', 'RADIACION', 'IRRADIANCIA', 'VELOCIDAD', 
         'VIENTO', 'WM2', 'MS'
     ]
-    # Se ordenan por longitud para evitar sustituciones parciales cruzadas
     palabras_a_remover.sort(key=len, reverse=True)
     for word in palabras_a_remover:
         t = t.replace(word, '')
@@ -95,7 +87,7 @@ def extraer_datos_rer_dinamico(fecha):
         return None, None, [f"[{fecha.strftime('%d/%m/%Y')}] Error de extracción o no se halló la hoja de Energía Primaria."], []
 
     # ==========================
-    # 2.1 EXTRACCIÓN DE PRIMARIA
+    # EXTRACCIÓN DE PRIMARIA
     # ==========================
     fila_empresas = df_raw_prim.iloc[5].ffill().astype(str).str.strip()
     fila_centrales_prim = df_raw_prim.iloc[6].astype(str).str.strip()
@@ -143,13 +135,13 @@ def extraer_datos_rer_dinamico(fecha):
                 df_datos_prim[nombre] = np.nan
 
     # ==========================
-    # 2.2 EXTRACCIÓN DE POTENCIA (Algoritmo Match Perfeccionado con Filtro COLCA)
+    # EXTRACCIÓN DE POTENCIA (Punta Lomitas Totalizado y validación COLCA)
     # ==========================
     MAPEO_EXCEPCIONES = {
-        "PUNTA LOMITAS EXP - BL-1": "P LOMITAS_EXP-BL2",
-        "PUNTA LOMITAS EXP - BL-2": "P LOMITAS_EXP-BL1",
-        "PUNTA LOMITAS - I": "PUNTA LOMITAS-I",
-        "PUNTA LOMITAS - II": "PUNTA LOMITAS-II",
+        "PUNTA LOMITAS EXP - BL-1": "PUNTA LOMITAS",
+        "PUNTA LOMITAS EXP - BL-2": "PUNTA LOMITAS",
+        "PUNTA LOMITAS - I": "PUNTA LOMITAS",
+        "PUNTA LOMITAS - II": "PUNTA LOMITAS",
         "MAJES SOLAR 20T": "MAJES"
     }
 
@@ -164,7 +156,6 @@ def extraer_datos_rer_dinamico(fecha):
             matched_col_idx = None
             excepcion_pot_name = None
             
-            # 1. Verificar excepciones manuales
             for key_prim, val_pot in MAPEO_EXCEPCIONES.items():
                 if key_prim in nombre_completo:
                     excepcion_pot_name = val_pot
@@ -178,28 +169,21 @@ def extraer_datos_rer_dinamico(fecha):
                     
                     if pd.notna(pot_name_raw):
                         pot_clean = unicodedata.normalize('NFKD', pot_name_raw.upper()).encode('ASCII', 'ignore').decode('utf-8')
-                        
-                        # Control de calidad para evitar falsos positivos con Yarucaya Hidráulica vs Solar
-                        if "YARUCAYA" in pot_clean and "COLCA" not in empresa_pot_raw:
-                            continue
+                        if "YARUCAYA" in pot_clean and "COLCA" not in empresa_pot_raw: continue
                             
                         if exc_clean in pot_clean:
                             matched_col_idx = col_idx
                             break
             else:
-                # 2. Búsqueda difusa de alto rendimiento
                 opciones_candidatas = []
                 for col_idx in range(df_raw_pot.shape[1]):
                     pot_name_raw = str(fila_centrales_pot.iloc[col_idx]).strip()
                     empresa_pot_raw = str(fila_empresas_pot.iloc[col_idx]).strip()
                     
-                    if pd.isna(pot_name_raw) or pot_name_raw.lower() == 'nan':
-                        continue
+                    if pd.isna(pot_name_raw) or pot_name_raw.lower() == 'nan': continue
                         
-                    # Filtrado cruzado: Ignoramos la Yarucaya Hidráulica
                     pot_clean_check = unicodedata.normalize('NFKD', pot_name_raw.upper()).encode('ASCII', 'ignore').decode('utf-8')
-                    if "YARUCAYA" in pot_clean_check and "COLCA" not in empresa_pot_raw:
-                        continue
+                    if "YARUCAYA" in pot_clean_check and "COLCA" not in empresa_pot_raw: continue
                         
                     match_pot = clean_match_name(pot_name_raw)
                     if len(match_base) > 2 and len(match_pot) > 2:
@@ -207,7 +191,6 @@ def extraer_datos_rer_dinamico(fecha):
                         if fuerza_coincidencia >= 0.5:
                             opciones_candidatas.append((col_idx, fuerza_coincidencia))
                 
-                # Desempate iterativo
                 if opciones_candidatas:
                     opciones_candidatas.sort(key=lambda x: x[1], reverse=True)
                     matched_col_idx = opciones_candidatas[0][0] 
@@ -326,7 +309,6 @@ if 'df_rer_prim' in st.session_state:
     if not columnas_a_mostrar:
         st.warning("No hay datos que coincidan con los filtros seleccionados.")
     else:
-        # Filtramos ambos dataframes
         df_filtrado_prim = df_prim[['Fecha_Hora'] + columnas_a_mostrar].copy()
         df_filtrado_pot = df_pot[['Fecha_Hora'] + columnas_a_mostrar].copy()
         
@@ -349,28 +331,35 @@ if 'df_rer_prim' in st.session_state:
         if cols_eolicas:
             st.markdown("### 📈 Análisis Operativo - Parques Eólicos")
             
-            col_graph_e_1, col_graph_e_2 = st.columns(2)
+            # 1. Gráfica Primaria (Viento) - Apilada verticalmente
+            fig_eol_prim = go.Figure()
+            for col in cols_eolicas:
+                fig_eol_prim.add_trace(go.Scatter(x=df_filtrado_prim['Fecha_Hora'], y=df_filtrado_prim[col], mode='lines', name=col.split("|")[0].strip()))
+            fig_eol_prim.update_layout(title="Energía Primaria (Velocidad m/s)", xaxis_title="Fecha / Hora", yaxis_title="m/s", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
+            st.plotly_chart(fig_eol_prim, use_container_width=True)
             
-            with col_graph_e_1:
-                fig_eol_prim = go.Figure()
-                for col in cols_eolicas:
-                    fig_eol_prim.add_trace(go.Scatter(x=df_filtrado_prim['Fecha_Hora'], y=df_filtrado_prim[col], mode='lines', name=col.split("|")[0].strip()))
-                fig_eol_prim.update_layout(title="Energía Primaria (Velocidad m/s)", xaxis_title="Fecha / Hora", yaxis_title="m/s", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
-                st.plotly_chart(fig_eol_prim, use_container_width=True)
+            # 2. Gráfica de Potencia Individual (MW) - Apilada verticalmente
+            fig_eol_pot = go.Figure()
+            for col in cols_eolicas:
+                fig_eol_pot.add_trace(go.Scatter(x=df_filtrado_pot['Fecha_Hora'], y=df_filtrado_pot[col], mode='lines', name=col.split("|")[0].strip()))
+            fig_eol_pot.update_layout(title="Generación Activa Individual (Potencia MW)", xaxis_title="Fecha / Hora", yaxis_title="MW", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
+            st.plotly_chart(fig_eol_pot, use_container_width=True)
                 
-            with col_graph_e_2:
-                fig_eol_pot = go.Figure()
-                for col in cols_eolicas:
-                    fig_eol_pot.add_trace(go.Scatter(x=df_filtrado_pot['Fecha_Hora'], y=df_filtrado_pot[col], mode='lines', name=col.split("|")[0].strip()))
-                fig_eol_pot.update_layout(title="Generación Activa Individual (Potencia MW)", xaxis_title="Fecha / Hora", yaxis_title="MW", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
-                st.plotly_chart(fig_eol_pot, use_container_width=True)
-                
-            # Gráfica de Potencia Agregada Eólica (NUEVO)
+            # Gráfica de Potencia Agregada Eólica
             st.markdown("#### ⚡ Potencia Eólica Total Generada (MW)")
+            
+            cols_pl = [c for c in cols_eolicas if "PUNTA LOMITAS" in c.upper()]
+            cols_otros = [c for c in cols_eolicas if "PUNTA LOMITAS" not in c.upper()]
+            
+            if len(cols_pl) > 0:
+                potencia_total_eolica = df_filtrado_pot[cols_otros].sum(axis=1) + df_filtrado_pot[cols_pl[0]].fillna(0)
+            else:
+                potencia_total_eolica = df_filtrado_pot[cols_eolicas].sum(axis=1)
+
             fig_eol_total = go.Figure()
             fig_eol_total.add_trace(go.Scatter(
                 x=df_filtrado_pot['Fecha_Hora'], 
-                y=df_filtrado_pot[cols_eolicas].sum(axis=1), 
+                y=potencia_total_eolica, 
                 mode='lines', 
                 name='Total Eólica', 
                 fill='tozeroy', 
@@ -386,6 +375,7 @@ if 'df_rer_prim' in st.session_state:
             )
             st.plotly_chart(fig_eol_total, use_container_width=True)
             
+            # Gráficas de Promedios (Primaria)
             if mostrar_mensual: col_eol_1, col_eol_2 = st.columns(2)
             else: col_eol_1 = st.container() 
             
@@ -415,23 +405,21 @@ if 'df_rer_prim' in st.session_state:
         if cols_solares:
             st.markdown("### ☀️ Análisis Operativo - Centrales Solares")
             
-            col_graph_s_1, col_graph_s_2 = st.columns(2)
+            # 1. Gráfica Primaria (Irradiancia) - Apilada verticalmente
+            fig_sol_prim = go.Figure()
+            for col in cols_solares:
+                fig_sol_prim.add_trace(go.Scatter(x=df_filtrado_prim['Fecha_Hora'], y=df_filtrado_prim[col], mode='lines', name=col.split("|")[0].strip()))
+            fig_sol_prim.update_layout(title="Energía Primaria (Irradiancia W/m2)", xaxis_title="Fecha / Hora", yaxis_title="W/m2", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
+            st.plotly_chart(fig_sol_prim, use_container_width=True)
             
-            with col_graph_s_1:
-                fig_sol_prim = go.Figure()
-                for col in cols_solares:
-                    fig_sol_prim.add_trace(go.Scatter(x=df_filtrado_prim['Fecha_Hora'], y=df_filtrado_prim[col], mode='lines', name=col.split("|")[0].strip()))
-                fig_sol_prim.update_layout(title="Energía Primaria (Irradiancia W/m2)", xaxis_title="Fecha / Hora", yaxis_title="W/m2", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
-                st.plotly_chart(fig_sol_prim, use_container_width=True)
-            
-            with col_graph_s_2:
-                fig_sol_pot = go.Figure()
-                for col in cols_solares:
-                    fig_sol_pot.add_trace(go.Scatter(x=df_filtrado_pot['Fecha_Hora'], y=df_filtrado_pot[col], mode='lines', name=col.split("|")[0].strip()))
-                fig_sol_pot.update_layout(title="Generación Activa Individual (Potencia MW)", xaxis_title="Fecha / Hora", yaxis_title="MW", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
-                st.plotly_chart(fig_sol_pot, use_container_width=True)
+            # 2. Gráfica de Potencia Individual (MW) - Apilada verticalmente
+            fig_sol_pot = go.Figure()
+            for col in cols_solares:
+                fig_sol_pot.add_trace(go.Scatter(x=df_filtrado_pot['Fecha_Hora'], y=df_filtrado_pot[col], mode='lines', name=col.split("|")[0].strip()))
+            fig_sol_pot.update_layout(title="Generación Activa Individual (Potencia MW)", xaxis_title="Fecha / Hora", yaxis_title="MW", hovermode="x unified", height=400, xaxis_range=rango_fechas_x, showlegend=True)
+            st.plotly_chart(fig_sol_pot, use_container_width=True)
                 
-            # Gráfica de Potencia Agregada Solar (NUEVO)
+            # Gráfica de Potencia Agregada Solar
             st.markdown("#### ⚡ Potencia Solar Total Generada (MW)")
             fig_sol_total = go.Figure()
             fig_sol_total.add_trace(go.Scatter(
@@ -452,6 +440,7 @@ if 'df_rer_prim' in st.session_state:
             )
             st.plotly_chart(fig_sol_total, use_container_width=True)
             
+            # Gráficas de Promedios (Primaria)
             if mostrar_mensual: col_sol_1, col_sol_2 = st.columns(2)
             else: col_sol_1 = st.container()
             
@@ -478,7 +467,7 @@ if 'df_rer_prim' in st.session_state:
         # TABLAS DE DATOS COMBINADAS (EÓLICAS Y SOLARES)
         # ==========================================
         st.markdown("### 🗄️ Trazabilidad de Datos Crudos Consolidada")
-        st.info("Comparativa detallada entre el Recurso Primario extraído y su Potencia (MW) equivalente despachada.")
+        st.info("Comparativa detallada entre el Recurso Primario extraído y su Potencia (MW) equivalente despachada. *Nota: Si una central despacha bajo un solo nodo comercial (ej. Punta Lomitas), su potencia se muestra Totalizada.*")
         
         # 1. Tabla Eólica
         if cols_eolicas:
@@ -492,7 +481,10 @@ if 'df_rer_prim' in st.session_state:
                 
             for col in cols_eolicas:
                 nombre_corto = col.split("|")[0].strip()
-                df_eol_combined[f"{nombre_corto} [MW]"] = df_filtrado_pot[col]
+                if "PUNTA LOMITAS" in nombre_corto.upper():
+                    df_eol_combined[f"{nombre_corto} [MW Totalizado]"] = df_filtrado_pot[col]
+                else:
+                    df_eol_combined[f"{nombre_corto} [MW]"] = df_filtrado_pot[col]
                 
             st.dataframe(df_eol_combined, use_container_width=True, hide_index=True)
             
