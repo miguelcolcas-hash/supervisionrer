@@ -96,8 +96,10 @@ def extraer_datos_rer_dinamico(fecha):
     nombres_base_match = {} 
     
     for col_idx in range(df_raw_prim.shape[1]):
-        central = fila_centrales_prim.iloc[col_idx].upper()
-        empresa = fila_empresas.iloc[col_idx]
+        # --- MODIFICACIÓN AQUÍ: str() agregado ---
+        central = str(fila_centrales_prim.iloc[col_idx]).upper()
+        empresa = str(fila_empresas.iloc[col_idx])
+        # -----------------------------------------
         
         if central.startswith("C.E") or central.startswith("C.S"):
             nombre_columna = f"{central} | {empresa}"
