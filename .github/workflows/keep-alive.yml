@@ -1,15 +1,14 @@
-name: Keep Streamlit App Awake
+name: Keep Streamlit App Alive
 
 on:
   schedule:
-    # Se ejecuta todos los días a las 12:00 UTC
-    - cron: '0 12 * * *' 
-  workflow_dispatch: # Te permite ejecutar el script manualmente desde la pestaña "Actions"
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit App
-        # Reemplaza la URL de abajo con el enlace real de tu aplicación
-        run: curl -s -o /dev/null -w "%{http_code}" https://supervisionrer.streamlit.app
+      - name: Ping Streamlit app
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://supervisionrer.streamlit.app
